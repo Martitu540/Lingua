@@ -3,12 +3,7 @@ import { redirect, notFound } from "next/navigation"
 import { UnitTree } from "@/components/learning/unit-tree"
 import { CourseHeader } from "@/components/learning/course-header"
 import type { Course, Unit, Lesson, UserLessonProgress, Language } from "@/types/database"
-
-interface CourseWithDetails extends Course {
-  source_language: Language
-  target_language: Language
-  units: (Unit & { lessons: Lesson[] })[]
-}
+import { getCourseWithUnitsCached } from "@/lib/data/course-cache"
 
 export default async function CoursePage({ params }: { params: Promise<{ courseId: string }> }) {
   const { courseId } = await params
@@ -21,51 +16,20 @@ export default async function CoursePage({ params }: { params: Promise<{ courseI
     redirect("/auth/login")
   }
 
-  // Fetch course with units and lessons
-  const { data: course, error } = await supabase
-    .from("courses")
-    .select(`
-      *,
-      source_language:languages!courses_source_language_id_fkey(*),
-      target_language:languages!courses_target_language_id_fkey(*),
-      units(*, lessons(*))
-    `)
-    .eq("id", courseId)
-    .single()
-
-  if (error || !course) {
+  const courseData = await getCourseWithUnitsCached(courseId)
+  if (!courseData) {
     notFound()
   }
 
-  // Sort units and lessons by order_index
-  const courseData = course as CourseWithDetails
-  courseData.units = courseData.units?.sort((a, b) => a.order_index - b.order_index) || []
-  courseData.units.forEach((unit) => {
-    unit.lessons = unit.lessons?.sort((a, b) => a.order_index - b.order_index) || []
-  })
-
-  // Check if user is enrolled
-  const { data: userCourse } = await supabase
-    .from("user_courses")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("course_id", courseId)
-    .single()
-
-  // If not enrolled, enroll them
-  if (!userCourse) {
-    await supabase.from("user_courses").insert({
+  // Enroll (if needed) and record activity in a single query.
+  await supabase.from("user_courses").upsert(
+    {
       user_id: user.id,
       course_id: courseId,
-    })
-  }
-
-  // Update last practiced at
-  await supabase
-    .from("user_courses")
-    .update({ last_practiced_at: new Date().toISOString() })
-    .eq("user_id", user.id)
-    .eq("course_id", courseId)
+      last_practiced_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,course_id" },
+  )
 
   // Fetch user's lesson progress
   const lessonIds = courseData.units.flatMap((u) => u.lessons.map((l) => l.id))

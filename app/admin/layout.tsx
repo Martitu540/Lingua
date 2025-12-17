@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { AdminSidebar } from "@/components/admin/admin-sidebar"
+import { isAdmin } from "@/lib/auth/is-admin"
 
 export default async function AdminLayout({
   children,
@@ -16,27 +17,11 @@ export default async function AdminLayout({
     redirect("/auth/login")
   }
 
-  // Check if user is admin
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("is_admin")
-    .eq("id", user.id)
-    .single()
+  const { data: profile } = await supabase.from("profiles").select("email, settings").eq("id", user.id).maybeSingle()
 
-  // If profile doesn't exist or is_admin field doesn't exist, create/update it
-  if (profileError || !profile) {
-    // Try to update the profile to add is_admin field if it doesn't exist
-    await supabase
-      .from("profiles")
-      .update({ is_admin: false })
-      .eq("id", user.id)
+  if (!isAdmin({ userEmail: user.email, profile })) {
+    redirect("/dashboard")
   }
-
-  // For now, allow access if profile exists (you can restrict this later)
-  // TODO: Uncomment the line below once you've set is_admin = true for your user
-  // if (!profile?.is_admin) {
-  //   redirect("/dashboard")
-  // }
 
   return (
     <div className="flex min-h-svh">
@@ -45,4 +30,3 @@ export default async function AdminLayout({
     </div>
   )
 }
-

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { stripe } from "@/lib/stripe"
+import { isAdmin } from "@/lib/auth/is-admin"
+
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,14 +17,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Check if user is admin (allow if is_admin is true or if profile doesn't exist yet - for testing)
-    const { data: profile } = await supabase.from("profiles").select("is_admin").eq("id", user.id).single()
-
-    // Temporarily allow access if profile doesn't exist or is_admin field doesn't exist
-    // TODO: Uncomment the check below once you've set is_admin = true for your user
-    // if (!profile?.is_admin) {
-    //   return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    // }
+    const { data: profile } = await supabase.from("profiles").select("email, settings").eq("id", user.id).maybeSingle()
+    if (!isAdmin({ userEmail: user.email, profile })) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     if (!process.env.STRIPE_SECRET_KEY) {
       return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
@@ -111,4 +111,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Failed to fetch payments" }, { status: 500 })
   }
 }
-
