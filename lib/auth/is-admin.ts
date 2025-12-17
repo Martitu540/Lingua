@@ -24,9 +24,18 @@ export function isAdmin({
     .filter(Boolean)
     .map(normalizeEmail)
 
-  if (email && allowlist.includes(normalizeEmail(email))) return true
+  // If an allowlist exists, ONLY allow those emails.
+  if (allowlist.length > 0) {
+    return Boolean(email && allowlist.includes(normalizeEmail(email)))
+  }
 
-  // Fallback: stored role in profile settings (useful when you manage it in Supabase).
+  // If no allowlist is configured:
+  // - In production, deny by default (prevents accidental public admin access).
+  // - In development, allow a simple profile-settings role fallback for convenience.
+  if (process.env.NODE_ENV === "production") {
+    return false
+  }
+
   const role = profile?.settings?.role
   if (role === "admin") return true
 
@@ -35,4 +44,3 @@ export function isAdmin({
 
   return false
 }
-
